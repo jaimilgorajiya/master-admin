@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --obsidian: 15, 23, 42;
+    --cyan: 0, 200, 255;
+    --purple: 168, 85, 247;
+  }
+}
