@@ -108,7 +108,8 @@ const AddNewClient = ({ onClose, onSuccess, initialSoftware = null }) => {
             }
             
             // Calculate discount
-            const baseAmount = (selectedPackage?.price || 0) + selectedServices.reduce((sum, s) => sum + (s.price || 0), 0);
+            const pkgPrice = selectedPackage?.price ?? selectedPackage?.totalPrice ?? 0;
+            const baseAmount = pkgPrice + selectedServices.reduce((sum, s) => sum + (s.price || 0), 0);
             let discount = 0;
             
             if (found.discountType === 'flat') {
@@ -197,7 +198,7 @@ const AddNewClient = ({ onClose, onSuccess, initialSoftware = null }) => {
         softwareId: selectedSoftware._id,
         packageId: pkgId,
         packageName: selectedPackage.name,
-        packagePrice: selectedPackage.price,
+        packagePrice: selectedPackage.price ?? selectedPackage.totalPrice ?? 0,
         selectedServices: formattedServices,
         signupFieldValues: extraFields,
         appliedCoupon: appliedCoupon ? appliedCoupon.code : null,
@@ -540,7 +541,8 @@ const Step2 = ({
   const fields = software?.clientSignupFields || [];
 
   const totalServicesPrice = selectedServices.reduce((sum, s) => sum + (s.price || 0), 0);
-  const baseAmount = (selectedPackage?.price || 0) + totalServicesPrice;
+  const pkgBasePrice = selectedPackage?.price ?? selectedPackage?.totalPrice ?? 0;
+  const baseAmount = pkgBasePrice + totalServicesPrice;
   const totalAmount = Math.max(0, baseAmount - discountAmount);
 
   return (
@@ -579,12 +581,12 @@ const Step2 = ({
                       {safeVal(pkg.name)}
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                      Validity: {safeVal(pkg.durationDays || pkg.duration)} Days
+                      Validity: {safeVal(pkg.durationDays || pkg.panelDays || pkg.duration)} Days
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: '20px', fontWeight: 800, color: isSelected ? 'white' : 'var(--accent-primary)' }}>
-                      ₹{safeVal(pkg.price)}
+                      ₹{safeVal(pkg.price ?? pkg.totalPrice)}
                     </div>
                     {isSelected && <div style={{ fontSize: '10px', color: 'var(--accent-primary)', fontWeight: 700, textTransform: 'uppercase', marginTop: '4px' }}>Selected</div>}
                   </div>
@@ -679,7 +681,7 @@ const Step2 = ({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
             <span style={{ color: 'var(--text-secondary)' }}>{selectedPackage?.name || 'Software Package'}</span>
-            <span style={{ fontWeight: 600 }}>₹{selectedPackage?.price || 0}</span>
+            <span style={{ fontWeight: 600 }}>₹{selectedPackage?.price ?? selectedPackage?.totalPrice ?? 0}</span>
           </div>
           
           {selectedServices.map(s => (

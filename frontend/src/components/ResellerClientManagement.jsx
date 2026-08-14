@@ -61,7 +61,7 @@ const ResellerClientManagement = () => {
           axios.post(`${API}/api/proxy/external`, { targetUrl: sw.clientsGetApi, method: "GET" }, { headers: authHeaders() })
             .then(res => {
               const data = res.data;
-              const list = Array.isArray(data) ? data : (data.clients || data.data || data.admins || []);
+              const list = Array.isArray(data) ? data : (data.clients || data.data || data.admins || data.tenants || []);
               return { swId: sw._id, list };
             })
             .catch(() => ({ swId: sw._id, list: [] }))
@@ -348,7 +348,7 @@ const ResellerClientDetailView = ({ client: c, onBack }) => {
       return 'active';
   };
 
-  const expiryStatus = getExpiryStatus(localData.packageEndDate || raw.packageEndDate);
+  const expiryStatus = getExpiryStatus(localData.packageEndDate || raw.packageEndDate || raw.subscription?.expiryDate);
 
   return (
     <div className="client-details-page">
@@ -417,8 +417,8 @@ const ResellerClientDetailView = ({ client: c, onBack }) => {
                       </span>
                   </div>
                   <div className={`detail-value ${expiryStatus === 'expired' ? 'text-red-500' : (expiryStatus === 'warning' ? 'text-orange-500' : 'text-green-500')}`} style={{ fontSize: '14px' }}>
-                        {(localData.packageEndDate || raw.packageEndDate)
-                          ? `Expires ${new Date(localData.packageEndDate || raw.packageEndDate).toLocaleDateString('en-GB')}` 
+                        {(localData.packageEndDate || raw.packageEndDate || raw.subscription?.expiryDate)
+                          ? `Expires ${new Date(localData.packageEndDate || raw.packageEndDate || raw.subscription?.expiryDate).toLocaleDateString('en-GB')}` 
                           : "No Expiry Date"}
                   </div>
               </div>

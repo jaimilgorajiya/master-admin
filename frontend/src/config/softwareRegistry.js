@@ -98,5 +98,61 @@ export const softwareRegistry = [
       }
     ],
     isActive: true
+  },
+  {
+    _id: "6a744cc17ec5e2a869643c5a",
+    key: "sendzyy",
+    name: "Sendzyy",
+    description: "WhatsApp Automation & AI Platform",
+    routePath: "/software/sendzyy",
+    loginApi: "https://appapi.sendzyy.com/api/superadmin/login",
+    clientsGetApi: "https://appapi.sendzyy.com/api/superadmin/tenants",
+    packagePostApi: "https://appapi.sendzyy.com/api/superadmin/packages",
+    packagePutApi: "https://appapi.sendzyy.com/api/superadmin/packages/:id",
+    packageDeleteApi: "https://appapi.sendzyy.com/api/superadmin/packages/:id",
+    packageGetApi: "https://appapi.sendzyy.com/api/superadmin/packages",
+    clientSignupApi: "https://appapi.sendzyy.com/api/superadmin/tenants/register-manual",
+    clientToggleStatusApi: "https://appapi.sendzyy.com/api/superadmin/tenants/:id/status",
+    clientDeleteApi: "",
+    dashboardStatsApi: "https://appapi.sendzyy.com/api/superadmin/dashboard-stats",
+    autoLoginCreds: {
+      email: "superadmin@sendzyy.com",
+      password: "Sendzyy@Admin2026"
+    },
+    clientSignupFields: [
+      {
+        fieldName: "name",
+        label: "Business Name",
+        type: "text",
+        required: true,
+        options: [],
+        placeholder: "Enter Business Name"
+      },
+      {
+        fieldName: "email",
+        label: "Email Address",
+        type: "email",
+        required: true,
+        options: [],
+        placeholder: "Enter Email"
+      },
+      {
+        fieldName: "password",
+        label: "Temporary Password",
+        type: "password",
+        required: true,
+        options: [],
+        placeholder: "Enter Temporary Password"
+      },
+      {
+        fieldName: "planId",
+        label: "Plan ID",
+        type: "text",
+        required: true,
+        options: [],
+        placeholder: "e.g. panel_12m"
+      }
+    ],
+    isActive: true
   }
 ];

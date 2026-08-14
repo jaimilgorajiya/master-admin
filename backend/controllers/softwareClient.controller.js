@@ -7,21 +7,7 @@ import LedgerService from "../services/ledger.service.js";
 import { emitEvent } from "../socket/socketHandler.js";
 import { sendPaymentEmail } from "./softwareClientPayment.controller.js";
 import { validateCouponLogic } from "../utils/couponHelper.js";
-
-// Helper: call external API via internal proxy logic (direct axios, no HTTP round-trip)
-const callExternal = async (url, method, data = {}) => {
-  return await axios({
-    method: method || "POST",
-    url,
-    data,
-    headers: {
-      "x-api-key": process.env.HRMS_API_KEY || "hrms_master_admin_secret_key_2026",
-      "Content-Type": "application/json"
-    },
-    timeout: 15000,
-    validateStatus: () => true
-  });
-};
+import { callExternal } from "../utils/externalRequester.js";
 
 // ─── GET /api/software-clients/my-clients ────────────────────────────────────
 export const getMyClients = async (req, res) => {
@@ -40,15 +26,28 @@ export const getMyClients = async (req, res) => {
 // ─── POST /api/software-clients/create ───────────────────────────────────────
 export const createSoftwareClient = async (req, res) => {
   try {
-    const {
+    let {
       businessName, ownerName, email, phone,
       softwareId, signupFieldValues = {}, packageId, packageName, packagePrice,
       selectedServices = [],
-      appliedCoupon, discountAmount
+      appliedCoupon, discountAmount,
+      paymentStatus = "pending"
     } = req.body;
 
     if (!businessName || !ownerName || !email || !phone || !softwareId) {
       return res.status(400).json({ success: false, message: "All required fields must be filled" });
+    }
+
+    // Check if client with this email already exists for this software
+    const existingClient = await SoftwareClient.findOne({
+      email: email.toLowerCase(),
+      softwareId: softwareId
+    });
+    if (existingClient) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "A client with this email is already registered for this software" 
+      });
     }
 
     const software = await Software.findById(softwareId);
@@ -56,9 +55,11 @@ export const createSoftwareClient = async (req, res) => {
 
     // ── External Signup ──────────────────────────────────────────────────────
     let externalClientId = null;
+    let transactionId = null;
 
     if (software.clientSignupApi) {
-      const externalPayload = {
+      const isSendzyy = software.clientSignupApi.includes("sendzyy") || software.clientSignupApi.includes("192.168.29.110");
+      let externalPayload = {
         ...signupFieldValues,
         ownerName,
         businessName,
@@ -66,9 +67,43 @@ export const createSoftwareClient = async (req, res) => {
         phone,
         phoneNumber: signupFieldValues.phoneNumber || signupFieldValues.phone || phone,
       };
-      if (packageId) {
-        externalPayload.package = packageId;
-        externalPayload.packageId = packageId;
+
+      if (isSendzyy) {
+        // Sendzyy expects name, email, password, planId, paymentReference
+        externalPayload.name = businessName;
+        externalPayload.email = email;
+        
+        // Use supplied password or auto-generate one
+        externalPayload.password = signupFieldValues.password || "SendzyyTemp2026!";
+        
+        // Resolve planId from packageId
+        let resolvedPlanId = signupFieldValues.planId;
+        if (!resolvedPlanId && packageId) {
+          if (typeof packageId === "string" && packageId.startsWith("panel_")) {
+            resolvedPlanId = packageId;
+          } else {
+            // Fetch packages from Sendzyy to map the database packageId to Sendzyy planId
+            try {
+              const pkgGetUrl = software.packageGetApi || "https://appapi.sendzyy.com/api/superadmin/packages";
+              const pkgRes = await callExternal(pkgGetUrl, "GET");
+              const pkgs = Array.isArray(pkgRes.data) ? pkgRes.data : (pkgRes.data?.packages || pkgRes.data?.data || []);
+              const matchedPkg = pkgs.find(p => String(p.id || p._id) === String(packageId));
+              if (matchedPkg) {
+                resolvedPlanId = matchedPkg.planId;
+              }
+            } catch (err) {
+              console.error("[SoftwareClient] Failed to resolve planId from Sendzyy packages:", err.message);
+            }
+          }
+        }
+        externalPayload.planId = resolvedPlanId || "panel_12m"; // default fallback
+        externalPayload.paymentReference = signupFieldValues.paymentReference || "MASTER_ADMIN_DIRECT";
+        externalPayload.sendWelcomeEmail = true;
+      } else {
+        if (packageId) {
+          externalPayload.package = packageId;
+          externalPayload.packageId = packageId;
+        }
       }
 
       const extRes = await callExternal(software.clientSignupApi, "POST", externalPayload);
@@ -102,7 +137,7 @@ export const createSoftwareClient = async (req, res) => {
           return res.status(400).json({ success: false, message: errMsg, externalError: extRes.data });
         }
       } else {
-        externalClientId = extRes.data?.client?._id || extRes.data?.data?._id || extRes.data?._id || null;
+        externalClientId = extRes.data?.tenant?.id || extRes.data?.tenant?._id || extRes.data?.client?._id || extRes.data?.data?._id || extRes.data?._id || null;
       }
 
       // Deactivate on external software initially until payment is completed
@@ -148,6 +183,7 @@ export const createSoftwareClient = async (req, res) => {
       softwareId: software._id,
       softwareName: software.name,
       externalClientId: externalClientId || null,
+      transactionId: transactionId || null,
       packageId: packageId || null,
       packageName: packageName || null,
       packagePrice: packagePrice || null,
@@ -185,6 +221,22 @@ export const completePayment = async (req, res) => {
 
     const software = await Software.findById(client.softwareId);
     if (!software) return res.status(404).json({ success: false, message: "Software not found" });
+
+    // If externalClientId is missing, try to resolve it from the external API by email
+    if (software?.clientsGetApi && !client.externalClientId) {
+      try {
+        const extRes = await callExternal(software.clientsGetApi, "GET");
+        const list = Array.isArray(extRes.data) ? extRes.data
+          : (extRes.data?.clients || extRes.data?.data || extRes.data?.admins || []);
+        const match = list.find(c => (c.email || "").toLowerCase() === client.email.toLowerCase());
+        if (match) {
+          client.externalClientId = String(match.id || match._id);
+          console.log("[SoftwareClient] Linked externalClientId by email:", client.externalClientId);
+        }
+      } catch (err) {
+        console.warn("[SoftwareClient] Failed to resolve externalClientId by email:", err.message);
+      }
+    }
 
     // Assign package on external software if endpoint is configured
     if (software.clientPackageAssignApi && client.externalClientId) {
@@ -275,7 +327,14 @@ export const getAllSoftwareClients = async (req, res) => {
 // ─── GET /api/software-clients/:id ───────────────────────────────────────────
 export const getSoftwareClientById = async (req, res) => {
   try {
-    const client = await SoftwareClient.findById(req.params.id).populate("softwareId", "name");
+    const client = await SoftwareClient.findById(req.params.id)
+      .populate("softwareId", "name")
+      .populate("createdByReseller", "name email companyName")
+      .populate("createdByResellerEmployee", "name email")
+      || await SoftwareClient.findOne({ externalClientId: req.params.id })
+      .populate("softwareId", "name")
+      .populate("createdByReseller", "name email companyName")
+      .populate("createdByResellerEmployee", "name email");
     if (!client) return res.status(404).json({ success: false, message: "Client not found" });
     return res.status(200).json({ success: true, client });
   } catch (err) {
@@ -303,7 +362,7 @@ export const toggleSoftwareClientStatus = async (req, res) => {
           const externalRes = await callExternal(software.clientsGetApi, "GET");
           const externalClients = Array.isArray(externalRes.data)
             ? externalRes.data
-            : (externalRes.data.clients || externalRes.data.data || externalRes.data.admins || []);
+            : (externalRes.data.clients || externalRes.data.data || externalRes.data.admins || externalRes.data.tenants || []);
           
           const matched = externalClients.find(ec => 
             (ec.email || ec.ownerEmail || "").toLowerCase() === client.email.toLowerCase()
@@ -333,6 +392,27 @@ export const toggleSoftwareClientStatus = async (req, res) => {
             return res.status(400).json({ success: false, message: errMsg, externalError: externalRes.data });
           }
           console.error(`[SoftwareClient] External toggle failed but proceeding with local activation:`, errMsg);
+        } else if (newStatus && software.clientsGetApi) {
+          // Sync subscription details on manual activation
+          try {
+            const extRes = await callExternal(software.clientsGetApi, "GET");
+            const list = Array.isArray(extRes.data) ? extRes.data
+              : (extRes.data?.clients || extRes.data?.data || extRes.data?.admins || []);
+            const match = list.find(c => (c.email || "").toLowerCase() === client.email.toLowerCase());
+            if (match) {
+              if (match.subscription) {
+                client.packageName = match.subscription.planName || client.packageName;
+                client.packagePrice = match.subscription.price || client.packagePrice;
+                if (match.subscription.expiryDate) {
+                  client.packageEndDate = new Date(match.subscription.expiryDate);
+                }
+              } else if (match.packageEndDate) {
+                client.packageEndDate = new Date(match.packageEndDate);
+              }
+            }
+          } catch (syncErr) {
+            console.warn(`[SoftwareClient] Post-activation sync failed for ${client.email}:`, syncErr.message);
+          }
         }
       } else {
         console.warn(`[SoftwareClient] Skipping external toggle for ${client.email} — no externalClientId found even after sync attempt.`);
@@ -408,7 +488,7 @@ export const syncClientsFromExternal = async (req, res) => {
     // Support common response shapes
     const externalClients = Array.isArray(externalRes.data)
       ? externalRes.data
-      : (externalRes.data.clients || externalRes.data.data || externalRes.data.admins || []);
+      : (externalRes.data.clients || externalRes.data.data || externalRes.data.admins || externalRes.data.tenants || []);
 
     if (!externalClients.length) {
       return res.status(200).json({ success: true, message: "No clients found on external software", synced: 0 });
@@ -431,9 +511,11 @@ export const syncClientsFromExternal = async (req, res) => {
 
       // Determine if the external client is active/paid
       // Event Setu: active = status 'active' + has a paymentId in packageHistory
-      const extIsActive = ext.status === 'active' &&
-        Array.isArray(ext.packageHistory) &&
-        ext.packageHistory.some(h => h.paymentId);
+      // Sendzyy: status is active and has subscription object
+      const extIsActive = ext.status === 'active' && (
+        (Array.isArray(ext.packageHistory) && ext.packageHistory.some(h => h.paymentId)) ||
+        (ext.subscription && !ext.subscription.isExpired)
+      );
 
       if (extIsActive && !local.isActive) {
         local.isActive = true;
@@ -441,12 +523,19 @@ export const syncClientsFromExternal = async (req, res) => {
         if (!local.externalClientId && (ext._id || ext.id)) {
           local.externalClientId = String(ext._id || ext.id);
         }
-        if (ext.package) {
-          local.packageName = ext.package.name || local.packageName;
-          local.packagePrice = ext.package.price || local.packagePrice;
+        if (ext.subscription) {
+          local.packageName = ext.subscription.planName || local.packageName;
+          local.packagePrice = ext.subscription.price || local.packagePrice;
+          if (ext.subscription.expiryDate) local.packageEndDate = new Date(ext.subscription.expiryDate);
+          local.packageStartDate = ext.createdAt ? new Date(ext.createdAt) : local.packageStartDate || new Date();
+        } else {
+          if (ext.package) {
+            local.packageName = ext.package.name || local.packageName;
+            local.packagePrice = ext.package.price || local.packagePrice;
+          }
+          if (ext.packageStartDate) local.packageStartDate = new Date(ext.packageStartDate);
+          if (ext.packageEndDate) local.packageEndDate = new Date(ext.packageEndDate);
         }
-        if (ext.packageStartDate) local.packageStartDate = new Date(ext.packageStartDate);
-        if (ext.packageEndDate) local.packageEndDate = new Date(ext.packageEndDate);
         await local.save();
         synced++;
       } else if (!extIsActive && local.isActive) {
@@ -482,7 +571,7 @@ export const syncOneClient = async (req, res) => {
     const externalRes = await callExternal(software.clientsGetApi, "GET");
     const externalClients = Array.isArray(externalRes.data)
       ? externalRes.data
-      : (externalRes.data.clients || externalRes.data.data || externalRes.data.admins || []);
+      : (externalRes.data.clients || externalRes.data.data || externalRes.data.admins || externalRes.data.tenants || []);
 
     const ext = externalClients.find(ec =>
       (ec.email || ec.ownerEmail || "").toLowerCase() === local.email.toLowerCase()
@@ -492,9 +581,10 @@ export const syncOneClient = async (req, res) => {
       return res.status(200).json({ success: true, message: "Client not found on external software yet", activated: false });
     }
 
-    const extIsActive = ext.status === 'active' &&
-      Array.isArray(ext.packageHistory) &&
-      ext.packageHistory.some(h => h.paymentId);
+    const extIsActive = ext.status === 'active' && (
+      (Array.isArray(ext.packageHistory) && ext.packageHistory.some(h => h.paymentId)) ||
+      (ext.subscription && !ext.subscription.isExpired)
+    );
 
     if (extIsActive && !local.isActive) {
       local.isActive = true;
@@ -502,12 +592,19 @@ export const syncOneClient = async (req, res) => {
       if (!local.externalClientId && (ext._id || ext.id)) {
         local.externalClientId = String(ext._id || ext.id);
       }
-      if (ext.package) {
-        local.packageName = ext.package.name || local.packageName;
-        local.packagePrice = ext.package.price || local.packagePrice;
+      if (ext.subscription) {
+        local.packageName = ext.subscription.planName || local.packageName;
+        local.packagePrice = ext.subscription.price || local.packagePrice;
+        if (ext.subscription.expiryDate) local.packageEndDate = new Date(ext.subscription.expiryDate);
+        local.packageStartDate = ext.createdAt ? new Date(ext.createdAt) : local.packageStartDate || new Date();
+      } else {
+        if (ext.package) {
+          local.packageName = ext.package.name || local.packageName;
+          local.packagePrice = ext.package.price || local.packagePrice;
+        }
+        if (ext.packageStartDate) local.packageStartDate = new Date(ext.packageStartDate);
+        if (ext.packageEndDate) local.packageEndDate = new Date(ext.packageEndDate);
       }
-      if (ext.packageStartDate) local.packageStartDate = new Date(ext.packageStartDate);
-      if (ext.packageEndDate) local.packageEndDate = new Date(ext.packageEndDate);
       await local.save();
       emitEvent("software_client_change", { action: "sync_one", id: local._id });
       return res.status(200).json({ success: true, message: "Client activated", activated: true, client: local });
@@ -524,7 +621,7 @@ export const syncOneClient = async (req, res) => {
 export const deleteSoftwareClient = async (req, res) => {
   try {
     const { id } = req.params;
-    const client = await SoftwareClient.findById(id);
+    const client = await SoftwareClient.findById(id) || await SoftwareClient.findOne({ externalClientId: id });
     if (!client) return res.status(404).json({ success: false, message: "Client not found" });
 
     const software = await Software.findById(client.softwareId);
@@ -580,6 +677,9 @@ export const deleteExternalOnlyClient = async (req, res) => {
         }
       }
     }
+
+    // Delete any matching local records in MongoDB
+    await SoftwareClient.deleteMany({ softwareId, externalClientId: externalId });
 
     emitEvent("software_client_change", { action: "delete_external", softwareId, externalId });
     return res.status(200).json({ success: true, message: "External client removed" });

@@ -82,7 +82,7 @@ const ClientsManagement = ({ initialShowAddForm = false, onFormClose, onViewingD
           axios.post(`${API}/api/proxy/external`, { targetUrl: sw.clientsGetApi, method: "GET" }, { headers: authHeaders() })
             .then(res => {
               const data = res.data;
-              const list = Array.isArray(data) ? data : (data.clients || data.data || data.admins || []);
+              const list = Array.isArray(data) ? data : (data.clients || data.data || data.admins || data.tenants || []);
               return list.map(c => normalize(c, sw));
             })
             .catch(() => [])
@@ -123,29 +123,7 @@ const ClientsManagement = ({ initialShowAddForm = false, onFormClose, onViewingD
       };
     });
 
-    // Add local records that aren't on the external software yet
-    const localOnly = [];
-    unvisitedLocal.forEach(email => {
-      const local = localMap[email];
-      localOnly.push({
-        _extId: null,
-        name: local.ownerName || local.businessName || "—",
-        email: local.email,
-        phone: local.phone,
-        softwareName: local.softwareName || "—",
-        softwareId: local.softwareId?._id || local.softwareId,
-        packageName: local.packageName || "—",
-        paymentStatus: local.paymentStatus === 'cheque_pending' ? 'completed' : local.paymentStatus,
-        _paymentMethod: local.paymentMethod,
-        _localId: local._id,
-        _localDetails: local,
-        isActive: local.isActive,
-        createdAt: local.createdAt,
-        _software: swList.find(s => String(s._id) === String(local.softwareId?._id || local.softwareId))
-      });
-    });
-
-    const finalResults = [...merged, ...localOnly];
+    const finalResults = merged;
 
     // Deduplicate by email and filter out recently deleted ones
     const seen = new Map();
@@ -489,7 +467,7 @@ const ClientDetailView = ({ client: c, onBack }) => {
       return 'active';
   };
 
-  const expiryStatus = getExpiryStatus(localData.packageEndDate || raw.packageEndDate);
+  const expiryStatus = getExpiryStatus(localData.packageEndDate || raw.packageEndDate || raw.subscription?.expiryDate);
 
   return (
     <div className="client-details-page">
@@ -560,8 +538,8 @@ const ClientDetailView = ({ client: c, onBack }) => {
                       </span>
                   </div>
                   <div className={`detail-value ${expiryStatus === 'expired' ? 'text-red-500' : (expiryStatus === 'warning' ? 'text-orange-500' : 'text-green-500')}`}>
-                        {(localData.packageEndDate || raw.packageEndDate)
-                          ? `Expires ${new Date(localData.packageEndDate || raw.packageEndDate).toLocaleDateString('en-GB')}` 
+                        {(localData.packageEndDate || raw.packageEndDate || raw.subscription?.expiryDate)
+                          ? `Expires ${new Date(localData.packageEndDate || raw.packageEndDate || raw.subscription?.expiryDate).toLocaleDateString('en-GB')}` 
                           : "No Expiry Date"}
                   </div>
               </div>

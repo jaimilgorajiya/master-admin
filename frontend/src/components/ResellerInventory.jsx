@@ -126,9 +126,13 @@ const ResellerInventory = () => {
                                                     }}>
                                                         <div>
                                                             <div style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>{pkg.name}</div>
-                                                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{pkg.durationDays} {pkg.unit || 'Days'} Validity</div>
+                                                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                                                                {pkg.panelDays ? `${pkg.panelDays} Days` : (pkg.durationDays ? `${pkg.durationDays} Days` : `${pkg.duration?.value || pkg.durationValue || '0'} ${pkg.unit || 'Days'}`)} Validity
+                                                            </div>
                                                         </div>
-                                                        <div style={{ fontWeight: 700, color: 'var(--accent-primary)', fontSize: '14px' }}>₹{pkg.price}</div>
+                                                        <div style={{ fontWeight: 700, color: 'var(--accent-primary)', fontSize: '14px' }}>
+                                                            ₹{pkg.totalPrice ?? pkg.price ?? pkg.basePrice ?? 0}
+                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>

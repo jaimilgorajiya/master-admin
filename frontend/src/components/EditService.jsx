@@ -106,7 +106,7 @@ const EditService = ({ service, onBack, onSuccess }) => {
                 name="price"
                 value={formData.price}
                 onChange={handleChange}
-                placeholder="e.g., 5000"
+                placeholder="e.g., 3000"
                 required
                 min="0"
               />

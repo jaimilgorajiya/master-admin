@@ -62,3 +62,40 @@ export const verifyPaymentSignature = (orderId, paymentId, signature) => {
     
     return generated_signature === signature;
 };
+
+// ✅ Fetch Razorpay Payment Details
+export const getRazorpayPaymentDetails = async (req, res) => {
+  try {
+    const { paymentId } = req.params;
+    if (!paymentId || paymentId.startsWith("MANUAL")) {
+      return res.status(400).json({ success: false, message: "Invalid payment ID" });
+    }
+
+    const instance = getRazorpayInstance();
+    // Sanitize payment ID by removing any whitespace
+    const sanitizedPaymentId = paymentId.replace(/\s+/g, "").trim();
+    console.log(`[Razorpay] Fetching details for payment: "${sanitizedPaymentId}"`);
+    const payment = await instance.payments.fetch(sanitizedPaymentId);
+
+    return res.status(200).json({
+      success: true,
+      payment: {
+        id: payment.id,
+        entity: payment.entity,
+        amount: payment.amount / 100, // Convert paise to rupees
+        currency: payment.currency,
+        status: payment.status,
+        order_id: payment.order_id,
+        method: payment.method,
+        description: payment.description,
+        email: payment.email,
+        contact: payment.contact,
+        created_at: payment.created_at
+      }
+    });
+  } catch (error) {
+    console.error("Fetch Razorpay Payment Error:", error);
+    const errorMsg = error.error ? error.error.description : error.message;
+    return res.status(500).json({ success: false, message: errorMsg || "Error fetching payment details from Razorpay" });
+  }
+};

@@ -156,7 +156,7 @@ const EmployeeAddNewClient = ({ onClose, onSuccess }) => {
         softwareId: selectedSoftware._id,
         packageId: pkgId,
         packageName: selectedPackage.name,
-        packagePrice: selectedPackage.price,
+        packagePrice: selectedPackage.price ?? selectedPackage.totalPrice ?? 0,
         selectedServices: formattedServices,
         signupFieldValues: extraFields,
         appliedCoupon: appliedCoupon ? appliedCoupon.code : null,

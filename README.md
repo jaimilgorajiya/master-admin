@@ -67,7 +67,7 @@
     ```
     Create a `.env` file in the `backend` directory:
     ```env
-    PORT=5000
+    PORT=3000
     MONGODB_URI=your_mongodb_connection_string
     JWT_SECRET=your_jwt_secret
     EMAIL_USER=your_email@gmail.com
@@ -87,7 +87,7 @@
     ```
     Create a `.env` file in the `frontend` directory:
     ```env
-    VITE_API_BASE_URL=http://localhost:5000
+    VITE_API_BASE_URL=http://localhost:3000
     ```
     Run the application:
     ```bash

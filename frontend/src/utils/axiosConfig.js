@@ -2,7 +2,58 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
-// Create axios instance
+let isRedirecting = false;
+
+export const clearAuthAndRedirect = (msg) => {
+  if (isRedirecting) return;
+  isRedirecting = true;
+
+  localStorage.removeItem('adminToken');
+  sessionStorage.removeItem('adminToken');
+  localStorage.removeItem('adminUser');
+  sessionStorage.removeItem('adminUser');
+  localStorage.removeItem('employeeToken');
+  localStorage.removeItem('employeeData');
+  localStorage.removeItem('resellerToken');
+  localStorage.removeItem('resellerData');
+
+  toast.error(msg || 'Your session has expired. Please login again.');
+
+  const path = window.location.pathname;
+  let targetLogin = '/login';
+  if (path.startsWith('/employee')) targetLogin = '/employee/login';
+  else if (path.startsWith('/reseller')) targetLogin = '/reseller/login';
+
+  setTimeout(() => {
+    isRedirecting = false;
+    window.location.href = targetLogin;
+  }, 600);
+};
+
+// Global default axios interceptor for ALL axios calls throughout the app
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response) {
+      const { status, data, config } = error.response;
+      const url = config?.url || '';
+
+      // Skip public routes and external proxy calls
+      const isExempt = url.includes('/public') || 
+                       url.includes('/login') || 
+                       url.includes('/pay-') || 
+                       url.includes('/proxy/');
+
+      if (!isExempt && (status === 401 || status === 403)) {
+        const msg = data?.message || 'Your session has expired. Please login again.';
+        clearAuthAndRedirect(msg);
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Create custom admin axios instance
 const api = axios.create({
   baseURL: `${import.meta.env.VITE_API_BASE_URL}/api`,
   timeout: 10000,
@@ -17,41 +68,22 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Response interceptor - Handle token expiration
+// Response interceptor for custom instance
 api.interceptors.response.use(
-  (response) => {
-    return response;
-  },
+  (response) => response,
   (error) => {
     if (error.response) {
-      const { status, data } = error.response;
+      const { status, data, config } = error.response;
+      const url = config?.url || '';
+      const isExempt = url.includes('/proxy/');
 
-      if (status === 401 && (data.code === 'TOKEN_EXPIRED' || data.code === 'TOKEN_REVOKED')) {
-        localStorage.removeItem('adminToken');
-        sessionStorage.removeItem('adminToken');
-        localStorage.removeItem('adminUser');
-        sessionStorage.removeItem('adminUser');
-        toast.error('Your session has expired. Please login again.');
-        setTimeout(() => { window.location.href = '/login'; }, 1000);
-      } else if (status === 401 && (data.code === 'INVALID_TOKEN' || data.code === 'AUTH_FAILED')) {
-        localStorage.removeItem('adminToken');
-        sessionStorage.removeItem('adminToken');
-        localStorage.removeItem('adminUser');
-        sessionStorage.removeItem('adminUser');
-        toast.error('Authentication failed. Please login again.');
-        setTimeout(() => { window.location.href = '/login'; }, 1000);
-      } else if (status === 423 && data.code === 'ACCOUNT_LOCKED') {
-        toast.error(data.message);
-      } else if (status === 429 && data.code === 'RATE_LIMITED') {
-        toast.error(data.message);
+      if (!isExempt && (status === 401 || status === 403)) {
+        clearAuthAndRedirect(data?.message || 'Your session has expired. Please login again.');
       }
     }
-
     return Promise.reject(error);
   }
 );
@@ -81,15 +113,8 @@ employeeApi.interceptors.request.use(
 employeeApi.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('employeeToken');
-      localStorage.removeItem('employeeData');
-      toast.error('Your session has expired. Please login again.');
-      setTimeout(() => { window.location.href = '/employee/login'; }, 1000);
-    } else if (error.response?.status === 423 && error.response?.data?.code === 'ACCOUNT_LOCKED') {
-      toast.error(error.response.data.message);
-    } else if (error.response?.status === 429) {
-      toast.error('Too many login attempts. Please try again after 15 minutes.');
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      clearAuthAndRedirect('Your session has expired. Please login again.');
     }
     return Promise.reject(error);
   }
@@ -102,10 +127,7 @@ export const logoutAdmin = async () => {
   try {
     await api.post('/auth/logout');
   } catch (_) { /* best-effort */ }
-  localStorage.removeItem('adminToken');
-  sessionStorage.removeItem('adminToken');
-  localStorage.removeItem('adminUser');
-  sessionStorage.removeItem('adminUser');
+  clearAuthAndRedirect('Logged out successfully.');
 };
 
 /**
@@ -115,6 +137,5 @@ export const logoutEmployee = async () => {
   try {
     await employeeApi.post('/api/staff-auth/logout');
   } catch (_) { /* best-effort */ }
-  localStorage.removeItem('employeeToken');
-  localStorage.removeItem('employeeData');
+  clearAuthAndRedirect('Logged out successfully.');
 };

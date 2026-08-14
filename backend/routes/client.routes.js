@@ -1,6 +1,6 @@
 import express from "express";
 import { createClient, getAllClients, updateClient, toggleClientStatus, deleteClient, checkClientStatusByEmail, getClientHistory, sendManualReminder } from "../controllers/client.controller.js";
-import { authMiddleware } from "../middleware/auth.middleware.js";
+import { authMiddleware, resellerOrAdminAuth } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
@@ -10,7 +10,7 @@ router.get("/all", authMiddleware, getAllClients);
 router.put("/update/:id", authMiddleware, updateClient);
 router.patch("/toggle-status/:id", authMiddleware, toggleClientStatus);
 router.delete("/delete/:id", authMiddleware, deleteClient);
-router.get("/history/:id", authMiddleware, getClientHistory);
+router.get("/history/:id", resellerOrAdminAuth, getClientHistory);
 // Manual reminder route removed
 // router.post("/send-reminder", authMiddleware, sendManualReminder);
 

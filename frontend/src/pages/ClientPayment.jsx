@@ -172,18 +172,26 @@ const ClientPayment = () => {
 
       {/* Client & Package Details */}
       <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 10, padding: '20px', marginBottom: 24 }}>
-        {/* Show signup field values if available, else fall back to base fields */}
-        {client.signupFieldValues && Object.keys(client.signupFieldValues).length > 0
-          ? Object.entries(client.signupFieldValues).map(([key, val]) => (
+        {(() => {
+          const filteredEntries = client.signupFieldValues
+            ? Object.entries(client.signupFieldValues).filter(([key]) => 
+                !["inviteToken", "razorpayOrderId", "password", "planId", "token", "paymentReference", "paymentStatus", "razorpay_order_id"].includes(key)
+              )
+            : [];
+          if (filteredEntries.length > 0) {
+            return filteredEntries.map(([key, val]) => (
               <Row key={key} label={key} value={val} />
-            ))
-          : <>
+            ));
+          }
+          return (
+            <>
               <Row label="Name" value={client.ownerName} />
               <Row label="Business" value={client.businessName} />
               <Row label="Email" value={client.email} />
               <Row label="Phone" value={client.phone} />
             </>
-        }
+          );
+        })()}
         <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.1)', margin: '12px 0' }} />
         <Row label="Software" value={client.softwareName} />
         <Row label="Package" value={client.packageName || '—'} />

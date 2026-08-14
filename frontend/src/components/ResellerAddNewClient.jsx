@@ -124,7 +124,7 @@ const ResellerAddNewClient = ({ onClose, onSuccess }) => {
         softwareId: selectedSoftware?._id || null, // Can be null
         packageId: pkgId,
         packageName: selectedPackage?.name || null,
-        packagePrice: selectedPackage?.price || null,
+        packagePrice: selectedPackage?.price ?? selectedPackage?.totalPrice ?? null,
         selectedServices: formattedServices,
         signupFieldValues: extraFields
       }, { headers: authHeaders() });
@@ -424,7 +424,7 @@ const Step2 = ({
   const fields = software?.clientSignupFields || [];
 
   const totalServicesPrice = selectedServices.reduce((sum, s) => sum + (s.price || 0), 0);
-  const totalAmount = (selectedPackage?.price || 0) + totalServicesPrice;
+  const totalAmount = (selectedPackage?.price ?? selectedPackage?.totalPrice ?? selectedPackage?.basePrice ?? 0) + totalServicesPrice;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -463,12 +463,12 @@ const Step2 = ({
                         {safeVal(pkg.name)}
                       </div>
                       <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        Validity: {safeVal(pkg.durationDays || pkg.duration)} Days
+                        Validity: {safeVal(pkg.durationDays || pkg.panelDays || pkg.duration)} Days
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontSize: '20px', fontWeight: 800, color: isSelected ? 'white' : 'var(--accent-primary)' }}>
-                        ₹{safeVal(pkg.price)}
+                        ₹{safeVal(pkg.price ?? pkg.totalPrice ?? pkg.basePrice)}
                       </div>
                     </div>
                   </div>
@@ -564,7 +564,7 @@ const Step2 = ({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
             <span style={{ color: 'var(--text-secondary)' }}>{software ? 'Package Base' : 'Service Client'}</span>
-            <span style={{ fontWeight: 600 }}>₹{selectedPackage?.price || 0}</span>
+            <span style={{ fontWeight: 600 }}>₹{selectedPackage?.price ?? selectedPackage?.totalPrice ?? selectedPackage?.basePrice ?? 0}</span>
           </div>
           {selectedServices.map(s => (
             <div key={s._id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#28a745' }}>

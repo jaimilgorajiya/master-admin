@@ -9,21 +9,7 @@ import { generatePassword } from "../utils/passwordGenerator.js";
 import { emitEvent } from "../socket/socketHandler.js";
 import { sendPaymentEmail } from "./softwareClientPayment.controller.js";
 import sendEmail from "../utils/emailService.js";
-
-// Helper for external API calls
-const callExternal = async (url, method, data = {}) => {
-  return await axios({
-    method: method || "POST",
-    url,
-    data,
-    headers: {
-      "x-api-key": process.env.HRMS_API_KEY || "hrms_master_admin_secret_key_2026",
-      "Content-Type": "application/json"
-    },
-    timeout: 15000,
-    validateStatus: () => true
-  });
-};
+import { callExternal } from "../utils/externalRequester.js";
 
 // ── TEAM MANAGEMENT ──────────────────────────────────────────────────────────
 
@@ -223,11 +209,24 @@ export const resellerCreateClient = async (req, res) => {
             software = await Software.findById(softwareId);
             if (!software) return res.status(404).json({ success: false, message: "Software not found" });
 
+            // Check if client with this email already exists for this software
+            const existingClient = await SoftwareClient.findOne({
+                email: email.toLowerCase(),
+                softwareId: softwareId
+            });
+            if (existingClient) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: "A client with this email is already registered for this software" 
+                });
+            }
+
             // 1. External Signup (if configured)
             if (software.clientSignupApi) {
+                const isSendzyy = software.clientSignupApi.includes("sendzyy") || software.clientSignupApi.includes("192.168.29.110");
                 // Ensure external software knows which partner is creating the client
                 // We send the signup fields + basic details + reseller identification
-                const externalPayload = { 
+                let externalPayload = { 
                     ...signupFieldValues,
                     ownerName,
                     businessName,
@@ -237,9 +236,42 @@ export const resellerCreateClient = async (req, res) => {
                     resellerEmail: reseller.email,
                     resellerName: reseller.name
                 };
-                if (packageId) {
-                    externalPayload.package = packageId;
-                    externalPayload.packageId = packageId;
+
+                if (isSendzyy) {
+                    // Sendzyy expects name, email, password, planId, paymentReference
+                    externalPayload.name = businessName;
+                    externalPayload.email = email;
+                    
+                    // Use supplied password or auto-generate one
+                    externalPayload.password = signupFieldValues.password || "SendzyyTemp2026!";
+                    
+                    // Resolve planId from packageId
+                    let resolvedPlanId = signupFieldValues.planId;
+                    if (!resolvedPlanId && packageId) {
+                        if (typeof packageId === "string" && packageId.startsWith("panel_")) {
+                            resolvedPlanId = packageId;
+                        } else {
+                            try {
+                                const pkgGetUrl = software.packageGetApi || "https://appapi.sendzyy.com/api/superadmin/packages";
+                                const pkgRes = await callExternal(pkgGetUrl, "GET");
+                                const pkgs = Array.isArray(pkgRes.data) ? pkgRes.data : (pkgRes.data?.packages || pkgRes.data?.data || []);
+                                const matchedPkg = pkgs.find(p => String(p.id || p._id) === String(packageId));
+                                if (matchedPkg) {
+                                    resolvedPlanId = matchedPkg.planId;
+                                }
+                            } catch (err) {
+                                console.error("[ResellerAction] Failed to resolve planId from Sendzyy packages:", err.message);
+                            }
+                        }
+                    }
+                    externalPayload.planId = resolvedPlanId || "panel_12m"; // default fallback
+                    externalPayload.paymentReference = signupFieldValues.paymentReference || "MASTER_ADMIN_DIRECT";
+                    externalPayload.sendWelcomeEmail = true;
+                } else {
+                    if (packageId) {
+                        externalPayload.package = packageId;
+                        externalPayload.packageId = packageId;
+                    }
                 }
                 
                 console.log(`[ResellerAction] Creating client for ${software.name} via ${isEmployee ? 'Staff' : 'Owner'}`);
@@ -258,7 +290,7 @@ export const resellerCreateClient = async (req, res) => {
                             const listRes = await callExternal(software.clientsGetApi, "GET");
                             const list = Array.isArray(listRes.data)
                               ? listRes.data
-                              : (listRes.data?.clients || listRes.data?.data || listRes.data?.admins || []);
+                              : (listRes.data?.clients || listRes.data?.data || listRes.data?.admins || listRes.data?.tenants || []);
                             
                             const match = list.find(c => (c.email || c.ownerEmail || "").toLowerCase() === email.toLowerCase());
                             if (match) {
@@ -274,7 +306,7 @@ export const resellerCreateClient = async (req, res) => {
                         return res.status(400).json({ success: false, message: errMsg, externalError: externalRes.data });
                     }
                 } else {
-                    externalClientId = externalRes.data?.client?._id || externalRes.data?.data?._id || null;
+                    externalClientId = externalRes.data?.tenant?.id || externalRes.data?.tenant?._id || externalRes.data?.client?._id || externalRes.data?.data?._id || externalRes.data?._id || null;
                 }
 
                 // Deactivate on external software initially until payment is completed
@@ -496,6 +528,27 @@ export const toggleClientStatus = async (req, res) => {
             if (!extRes.data?.success) {
                 const msg = extRes.data?.message || `External software responded with ${extRes.status}`;
                 return res.status(400).json({ success: false, message: msg });
+            } else if (newStatus && software.clientsGetApi) {
+                // Sync subscription details on activation
+                try {
+                    const extResList = await callExternal(software.clientsGetApi, "GET");
+                    const list = Array.isArray(extResList.data) ? extResList.data
+                        : (extResList.data?.clients || extResList.data?.data || extResList.data?.admins || extResList.data?.tenants || []);
+                    const match = list.find(c => (c.email || "").toLowerCase() === client.email.toLowerCase());
+                    if (match) {
+                        if (match.subscription) {
+                            client.packageName = match.subscription.planName || client.packageName;
+                            client.packagePrice = match.subscription.price || client.packagePrice;
+                            if (match.subscription.expiryDate) {
+                                client.packageEndDate = new Date(match.subscription.expiryDate);
+                            }
+                        } else if (match.packageEndDate) {
+                            client.packageEndDate = new Date(match.packageEndDate);
+                        }
+                    }
+                } catch (syncErr) {
+                    console.warn(`[Reseller] Post-activation sync failed for ${client.email}:`, syncErr.message);
+                }
             }
         }
 

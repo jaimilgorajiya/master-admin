@@ -20,7 +20,7 @@ router.post("/clients", resellerCreateClient);
 router.patch("/clients/toggle-status/:id", toggleClientStatus);
 
 // Analytics
-router.get("/analytics", getAnalytics);
+router.get("/performance-overview", getAnalytics);
 router.get("/revenue", getRevenue);
 
 // Permissions

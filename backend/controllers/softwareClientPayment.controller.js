@@ -10,25 +10,12 @@ import { emitEvent } from "../socket/socketHandler.js";
 import Transaction from "../models/transaction.model.js";
 import CommissionService from "../services/commission.service.js";
 import LedgerService from "../services/ledger.service.js";
+import { callExternal } from "../utils/externalRequester.js";
 
 const getRazorpay = () => new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET
 });
-
-const callExternal = async (url, method, data = {}) => {
-  return await axios({
-    method: method || "POST",
-    url,
-    data,
-    headers: {
-      "x-api-key": process.env.HRMS_API_KEY || "hrms_master_admin_secret_key_2026",
-      "Content-Type": "application/json"
-    },
-    timeout: 15000,
-    validateStatus: () => true
-  });
-};
 
 const findClient = async (id) => {
   if (mongoose.Types.ObjectId.isValid(id)) {
@@ -90,6 +77,8 @@ export const createOnlineOrder = async (req, res) => {
   try {
     const client = await getSoftwareClientDoc(req.params.id);
     if (!client) return res.status(404).json({ success: false, message: "Client not found" });
+
+    // (Sendzyy native payment invite check removed to use Master Admin Razorpay credentials)
 
     let amount = client.packagePrice || 0;
     
@@ -186,6 +175,8 @@ export const verifyOnlinePayment = async (req, res) => {
     console.log("[Payment] Found client:", client?.email, "paymentStatus:", client?.paymentStatus);
     if (!client) return res.status(404).json({ success: false, message: "Client not found" });
 
+    // (Sendzyy native payment verification check removed to use Master Admin Razorpay verification)
+
     // Verify signature (unless it's a free checkout)
     if (razorpay_payment_id === 'FREE') {
       const calculatedTotal = (client.packagePrice || 0) + (client.selectedServices || []).reduce((s, x) => s + (x.price || 0), 0) - (client.discountAmount || 0);
@@ -211,10 +202,10 @@ export const verifyOnlinePayment = async (req, res) => {
       try {
         const extRes = await callExternal(software.clientsGetApi, "GET");
         const list = Array.isArray(extRes.data) ? extRes.data
-          : (extRes.data?.clients || extRes.data?.data || extRes.data?.admins || []);
+          : (extRes.data?.clients || extRes.data?.data || extRes.data?.admins || extRes.data?.tenants || []);
         const match = list.find(c => (c.email || "").toLowerCase() === client.email.toLowerCase());
-        if (match?._id) {
-          client.externalClientId = String(match._id);
+        if (match) {
+          client.externalClientId = String(match.id || match._id);
           console.log("[Payment] Found externalClientId by email:", client.externalClientId);
         }
       } catch (e) {
@@ -226,6 +217,29 @@ export const verifyOnlinePayment = async (req, res) => {
       const url = software.clientToggleStatusApi.replace(":id", client.externalClientId);
       const toggleRes = await callExternal(url, "PATCH", { status: "active" });
       console.log("[Payment] Toggle status response:", toggleRes.status, JSON.stringify(toggleRes.data));
+      
+      // Sync subscription details on online payment activation
+      if (software.clientsGetApi) {
+        try {
+          const extRes = await callExternal(software.clientsGetApi, "GET");
+          const list = Array.isArray(extRes.data) ? extRes.data
+            : (extRes.data?.clients || extRes.data?.data || extRes.data?.admins || extRes.data?.tenants || []);
+          const match = list.find(c => (c.email || "").toLowerCase() === client.email.toLowerCase());
+          if (match) {
+            if (match.subscription) {
+              client.packageName = match.subscription.planName || client.packageName;
+              client.packagePrice = match.subscription.price || client.packagePrice;
+              if (match.subscription.expiryDate) {
+                client.packageEndDate = new Date(match.subscription.expiryDate);
+              }
+            } else if (match.packageEndDate) {
+              client.packageEndDate = new Date(match.packageEndDate);
+            }
+          }
+        } catch (syncErr) {
+          console.warn("[Payment] Post-activation sync failed:", syncErr.message);
+        }
+      }
     } else {
       console.warn("[Payment] Skipping toggle — missing API or externalClientId:", {
         hasToggleApi: !!software?.clientToggleStatusApi,
@@ -337,9 +351,10 @@ export const sendPaymentEmail = async (client) => {
   const paymentUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/pay-client/${client._id}`;
 
   // Build detail rows from signupFieldValues (Step 2 data) — these are the actual field values
-  const extraEntries = client.signupFieldValues instanceof Map
+  const extraEntries = (client.signupFieldValues instanceof Map
     ? [...client.signupFieldValues.entries()]
-    : Object.entries(client.signupFieldValues || {});
+    : Object.entries(client.signupFieldValues || {}))
+    .filter(([key]) => !key.toLowerCase().includes("password"));
 
   const detailRows = extraEntries.map(([key, val]) =>
     `<p style="margin:4px 0"><strong>${key}:</strong> ${val}</p>`

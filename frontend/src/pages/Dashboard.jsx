@@ -143,7 +143,7 @@ const Dashboard = () => {
           softwares.map(sw =>
             axios.post(`${API}/api/proxy/external`, { targetUrl: sw.clientsGetApi, method: "GET" }, { headers })
               .then(res => {
-                const list = Array.isArray(res.data) ? res.data : (res.data.clients || res.data.data || []);
+                const list = Array.isArray(res.data) ? res.data : (res.data.clients || res.data.data || res.data.tenants || []);
                 return list.map(c => ({ ...c, _softwareName: sw.name, _isSoftwareType: true }));
               })
               .catch(() => [])

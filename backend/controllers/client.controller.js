@@ -14,17 +14,48 @@ export const getClientHistory = async (req, res) => {
     try {
         const { id } = req.params;
         
+        // Find local client document if using external ID
+        const clientDoc = mongoose.isValidObjectId(id)
+          ? (await SoftwareClient.findById(id) || await SoftwareClient.findOne({ externalClientId: id }))
+          : await SoftwareClient.findOne({ externalClientId: id });
+          
+        const targetId = clientDoc ? clientDoc._id : id;
+
+        // Security check for Resellers and Reseller Employees
+        if (req.user.role === "RESELLER" || req.user.role === "RESELLER_EMPLOYEE") {
+            if (!clientDoc) {
+                return res.status(403).json({ success: false, message: "Forbidden. Client not found or not owned by you." });
+            }
+            const isEmployee = req.user.role === "RESELLER_EMPLOYEE";
+            const resellerId = isEmployee ? req.user.resellerId : req.user.id;
+            const employeeId = isEmployee ? req.user.id : null;
+
+            const isOwner = String(clientDoc.createdByReseller) === String(resellerId);
+            const isEmpOwner = !isEmployee || String(clientDoc.createdByResellerEmployee) === String(employeeId);
+
+            if (!isOwner || !isEmpOwner) {
+                return res.status(403).json({ success: false, message: "Forbidden. You do not own this client." });
+            }
+        }
+
         // 1. Check Transaction model (Regular clients)
-        const transactions = await Transaction.find({ clientId: id })
+        const transactions = await Transaction.find({ clientId: targetId })
             .populate("packageId", "name price durationDays unit")
             .sort({ createdAt: -1 });
 
         if (transactions.length > 0) {
-            return res.status(200).json({ success: true, history: transactions });
+            const enriched = transactions.map(t => {
+                const plain = t.toObject();
+                if (clientDoc) {
+                    plain.packageName = plain.packageName || clientDoc.packageName;
+                }
+                return plain;
+            });
+            return res.status(200).json({ success: true, history: enriched });
         }
 
         // 2. Check SoftwareClient model (Reseller-created clients)
-        const client = await SoftwareClient.findById(id);
+        const client = clientDoc || (mongoose.isValidObjectId(id) ? await SoftwareClient.findById(id) : null);
 
         if (client && client.paymentStatus === 'completed') {
             // Synthesize a transaction object compatible with the frontend

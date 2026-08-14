@@ -9,6 +9,7 @@ import ClientRenewal from "./pages/ClientRenewal";
 import ServiceRenewal from "./pages/ServiceRenewal";
 import ClientPayment from "./pages/ClientPayment";
 import ServiceClientPayment from "./pages/ServiceClientPayment";
+import PayInvite from "./pages/PayInvite";
 import ResellerLogin from "./pages/ResellerLogin";
 import ResellerDashboard from "./pages/ResellerDashboard";
 import ResellerEmployeeDashboard from "./pages/ResellerEmployeeDashboard";
@@ -119,6 +120,7 @@ function App() {
           {/* Public Routes - Removed Renewal Links */}
           <Route path="/pay-client/:id" element={<ClientPayment />} />
           <Route path="/pay-service/:id" element={<ServiceClientPayment />} />
+          <Route path="/pay-invite" element={<PayInvite />} />
 
           {/* Mobile Panel Routes */}
           <Route path="/mobile/reseller/dashboard" element={<MobileLayout><MobileResellerDashboard /></MobileLayout>} />

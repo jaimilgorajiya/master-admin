@@ -25,8 +25,8 @@ const ResellerPerformanceMatrix = ({ employeeId = null, hideHeader = false }) =>
         try {
             const token = localStorage.getItem("resellerToken") || sessionStorage.getItem("resellerToken");
             const url = employeeId 
-                ? `${import.meta.env.VITE_API_BASE_URL}/api/reseller-actions/analytics?employeeId=${employeeId}`
-                : `${import.meta.env.VITE_API_BASE_URL}/api/reseller-actions/analytics`;
+                ? `${import.meta.env.VITE_API_BASE_URL}/api/reseller-actions/performance-overview?employeeId=${employeeId}`
+                : `${import.meta.env.VITE_API_BASE_URL}/api/reseller-actions/performance-overview`;
                 
             const res = await axios.get(url, {
                 headers: { Authorization: `Bearer ${token}` }

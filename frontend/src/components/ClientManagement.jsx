@@ -139,7 +139,7 @@ const ClientManagement = ({ initialShowAddForm = false, onFormClose }) => {
             axios.post(`${API}/api/proxy/external`, { targetUrl: sw.clientsGetApi, method: "GET" }, { headers: authHeaders() })
               .then(res => {
                 const data = res.data;
-                const list = Array.isArray(data) ? data : (data.clients || data.data || data.admins || []);
+                const list = Array.isArray(data) ? data : (data.clients || data.data || data.admins || data.tenants || []);
                 return list.map(c => normalizeSw(c, sw));
               })
               .catch(() => [])
@@ -172,28 +172,7 @@ const ClientManagement = ({ initialShowAddForm = false, onFormClose }) => {
         };
       });
 
-      // Local-only records not in external
-      const localOnly = localRes
-        .filter(l => l.email && !externalEmails.has(l.email.toLowerCase().trim()))
-        .map(l => ({
-          _type: 'software',
-          _id: `swlocal_${l._id}`,
-          _localId: l._id,
-          _extId: null,
-          _localDetails: l,
-          _raw: {},
-          clientName: l.ownerName || l.businessName || "—",
-          clientEmail: l.email,
-          clientPhone: l.phone || "—",
-          softwareName: l.softwareName || "—",
-          softwareId: l.softwareId || null,
-          packageName: l.packageName || "—",
-          paymentStatus: l.paymentStatus || "pending",
-          isActive: l.isActive,
-          createdAt: l.createdAt,
-        }));
-
-      setSoftwareClients([...externalMerged, ...localOnly]);
+      setSoftwareClients(externalMerged);
     } catch (err) {
       console.error("Failed to fetch software clients", err);
     }
